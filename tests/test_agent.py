@@ -74,6 +74,18 @@ def test_one_index_per_node_with_operation_specific_targets():
     assert "WAIT" in controls
 
 
+def test_field_context_and_validation_reach_both_models():
+    p = page()
+    action = p["actions"][0]
+    action.update(context="Skills Sales", description="Select three skills", invalid=True)
+    elements, _, _ = model.action_space(p["actions"])
+    field = model.field_context("Finish draft", action, p, [])["field"]
+    for result in (elements[0], field):
+        assert result["context"] == "Skills Sales"
+        assert result["description"] == "Select three skills"
+        assert result["invalid"] is True
+
+
 def test_all_heads_are_one_request_and_only_matching_head_executes(monkeypatch):
     calls = []
 

@@ -23,6 +23,20 @@
   };
   const roles=['button','link','checkbox','radio','switch','tab','menuitem','menuitemradio',
     'option','gridcell','combobox','textbox','searchbox','spinbutton'];
+  // Unassociated visual labels are common in custom selects. Keep this as
+  // observed context, not a fabricated accessible name or selected value.
+  const fieldContext = e => {
+    if (!e.matches('input,textarea,select,[contenteditable="true"]')) return '';
+    let scope=e.parentElement;
+    for (let depth=0; scope && depth<4; depth++,scope=scope.parentElement) {
+      const fields=[...scope.querySelectorAll('input,textarea,select,[contenteditable="true"]')]
+        .filter(n=>safe(n) && visible(n));
+      if (fields.length!==1 || fields[0]!==e) break;
+      const labels=[...scope.querySelectorAll('label,legend')].filter(visible);
+      if (labels.length===1) return scope.innerText.trim().slice(0,600);
+    }
+    return '';
+  };
   const selector='a[href],button,input,textarea,select,summary,[contenteditable="true"],'+
     roles.map(role=>'[role="'+role+'"]').join(',');
   const role = e => {
@@ -60,6 +74,14 @@
     if (rname==='gridcell' && e.querySelector('button,[role="button"]')) continue;
     const base={node:identity(e),role:rname,label:name(e)||rname,
       rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+    const context=fieldContext(e);
+    if (context) base.context=context;
+    const description=(e.getAttribute('aria-describedby')||'').split(/\s+/)
+      .map(id=>document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
+    if (description) base.description=description.slice(0,600);
+    if (e.getAttribute('aria-invalid')==='true' || e.validity?.valid===false)
+      base.invalid=true;
+    if (e.tagName==='A') base.href=e.href;
     for (const key of ['checked','selected','expanded']) {
       const value=e.getAttribute('aria-'+key);
       if (value!==null) base[key]=value;

@@ -136,3 +136,114 @@ Tests are offline. `uv run python scripts/check_guards.py` checks real controls 
 ---
 
 [Browser Use](https://github.com/browser-use/browser-use) · [Browser Harness](https://github.com/browser-use/browser-harness) · [TypeSafe speculative fan-out](https://docs.typesafe.ai/patterns/fan-out)
+
+## Codex + Dia (local integration)
+
+Codex hands Jev a complete, bounded natural-language goal. Jev chooses each
+operation and observed target using the goal, current page and recent actions.
+Codex supplies field text only for TYPE_TEXT. The caller independently verifies
+the result and handles recovery or required user approvals. Browser Harness is
+model-agnostic; Jev is TypeSafe's model. This integration uses the canonical
+chrome-cdp layer rather than a competing Browser Harness connection.
+
+```bash
+uv run jev-tool --browser dia --url https://en.wikipedia.org/wiki/Main_Page \
+  --goal 'Find the article about Ada Lovelace and open it.' \
+  --run --max-steps 12 --max-seconds 120
+```
+
+`--run` emits JSON progress and a final JSON observation, then exits. Exit 0 means
+Jev said DONE, not independently verified success. Exit 2 means paused, blocked,
+budget exhausted or an in-run error; exit 1 means setup failed. Newly created tabs
+remain open after `--run` so Codex can verify them; the caller should close its
+owned tabs when finished. Existing tabs (`--tab TAB_ID` instead of `--url`) are
+never navigated or closed during setup/exit. No inspector UI is needed.
+
+Autonomous mode currently applies a conservative **browse/search policy**:
+search-like fields, search buttons, options, supported filters and same-origin
+links can run. Consequential labels (Send, Pay, Confirm, Delete, etc.), unknown
+controls and out-of-scope navigation pause with `needs_review`. This policy is a
+heuristic boundary, not proof of a site's behavior or a substitute for user
+approval. Delegate only authorized browse/search tasks; use step mode for other
+workflows. Do not treat an arbitrary broad goal as permission to send, buy or delete.
+The current origin is allowed by default; add `--allow-origin https://example.org`
+for explicitly authorized additional destinations. No site-specific action plans
+or prewritten field values are supplied to Jev.
+
+Actions, prediction attempts and elapsed time are bounded. Time is checked between
+observations/model calls and before input; an in-flight request can exceed the time
+budget, but no subsequent action executes after that check. Browser mutations are
+never replayed after errors. Stale observations trigger a fresh decision, preserving
+already-logged actions. `outcome_verified:false` remains explicit even on DONE.
+
+For interactive recovery, omit `--run`. The process emits an initial observation
+and accepts newline-delimited JSON on stdin:
+
+- `{"command":"run","max_steps":12,"max_seconds":120}` executes the goal autonomously.
+- `{"command":"observe"}` refreshes the page and discards the pending decision.
+- `{"command":"predict"}` asks TypeSafe for one next action without executing it.
+- `{"command":"text"}` previews and caches Codex text for a pending TYPE_TEXT.
+- `{"command":"act","fingerprint":"FROM_LAST_OBSERVATION"}` executes that decision once.
+- `{"command":"close"}` exits; EOF also exits. Owned tabs close unless `--keep-open`.
+
+After a pause, Codex inspects the pending action, obtains any required user approval,
+then uses step mode or a fresh bounded goal as appropriate. The tool itself does not
+collect interpersonal final-send approval. It must be obtained by the caller.
+
+### Connection and text providers
+
+The programmatic client lives in `chrome-cdp/python/chrome_cdp`. It holds one Node
+sidecar for the whole Python session and uses the same per-browser daemon, tab
+claims and diagnostics as the existing CLI/MCP. It does not launch a subprocess for
+each action or observation. Set `CHROME_CDP_SKILL` only if the skill is not at
+`~/.agents/skills/chrome-cdp`. Node and that skill must be installed; Dia must have
+remote debugging enabled. `cdp doctor --browser dia` is read-only diagnostics.
+
+An explicit `--port N` can replace `--browser dia`, including an already established
+SSH-forwarded CDP port. No remote resources or paid cloud browsers are provisioned.
+Direct hosted ws/wss URLs and provider-specific authentication remain deferred.
+
+`jev-tool` defaults to `TEXT_MODEL_PROVIDER=codex` and uses the existing CLI login
+and account usage limits. `TYPESAFE_API_KEY` is still required for predictions;
+`TEXT_MODEL_API_KEY` is unnecessary with Codex. Set `CODEX_TEXT_MODEL` optionally.
+Observations go to TypeSafe when predicting; field context goes to Codex for text.
+Codex runs ephemerally with browser, shell, apps and other action tools disabled.
+
+Jev retains its own indexed snapshot and freshness checks instead of converting
+nodes into chrome-cdp snapshot refs. Its original limitations (shadow DOM, frames,
+uploads, pop-up tabs, nested scrolling) still apply; use ordinary chrome-cdp for
+those workflows. Advisory claims prevent accidental competing writers, not hostile
+processes. Do not control a tab simultaneously through two clients.
+
+### Local validation
+
+`uv run pytest` is offline. `uv run python scripts/check_autonomous.py --live-models`
+explicitly opts into model calls against temporary local forms in Dia. It checks
+full-goal search completion and a pre-Send pause, independently reads final DOM
+state and closes its own fixture tabs. One measured full-goal run completed in
+9.3 seconds, of which 7.3 seconds was Codex text generation. This is a local fixture
+measurement, not a general browser reliability or performance benchmark.
+
+### Faster supervised draft workflows
+
+The CLI now returns compact summaries with the selected control and aggregate
+`usage.jev` / `usage.text_model` (calls, input/output tokens, model latency).
+Use `--verbose` or JSON `"verbose": true` for the complete action table and probabilities.
+These metrics cover recorded successful responses, not provider billing or unknown retry usage.
+
+For an already-authorized draft workflow, permit exact observed controls once:
+
+```sh
+uv run jev-tool --browser dia --tab TAB_ID --goal 'Complete the authorized draft; stop before publication' \
+  --run --max-steps 8 --max-predictions 10 --max-seconds 60 \
+  --allow-control '{"kind":"click","role":"button","label":"Next"}'
+```
+
+This extends permission scope without prescribing a click sequence. Consequential
+labels and origin checks still take precedence. Other unknown controls still pause.
+In a persistent session, resume with `allowed_controls` and `max_predictions` on
+`command: run`; an unchanged paused decision is reused without another Jev request.
+Validation/no-progress repeats return for diagnosis before another identical action.
+The prediction cap counts logical predictions; provider retries can add HTTP requests.
+
+See [the observed bottlenecks and verification](docs/dia-optimization-20260918.md).

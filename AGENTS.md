@@ -1,5 +1,7 @@
 # Jev Ultrafast
 
+Use the installed `typesafe-ai` skill when working on this project. Resolve its location from your agent’s skill catalog.
+
 Read README.md before editing. Keep the loop small: page -> indexed elements -> operation + target -> execution.
 
 - The input is one natural-language goal. Do not add site-specific plans or hardcoded field values.

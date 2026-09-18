@@ -127,6 +127,17 @@ def main():
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")
+        browser.evaluate("document.body.innerHTML=" + repr('''
+          <div><label>Skills</label><div><span>Sales</span>
+          <input role="combobox" aria-describedby="error" aria-invalid="true">
+          <span id="error">Select at least three skills</span></div></div>
+          <div><label>Ambiguous group</label><input><input></div>'''))
+        page = browser.observe(screenshot=False)
+        field = next(a for a in page["actions"] if a.get("role") == "combobox" and a["kind"] == "fill")
+        assert "Skills" in field["context"] and "Sales" in field["context"]
+        assert field["invalid"] and field["description"] == "Select at least three skills"
+        assert all("context" not in a for a in page["actions"] if a.get("role") == "textbox")
+        passed.append("custom fields expose observed context and validation without guessing ambiguous groups")
     finally:
         browser.close()
     print("\n".join(passed))

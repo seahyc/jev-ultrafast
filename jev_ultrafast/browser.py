@@ -18,10 +18,35 @@ class StalePage(ValueError):
 
 
 class Browser:
-    def __init__(self, url):
-        ensure_daemon()
-        self.target = cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
-        self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
+    def __init__(self, url, *, browser=None, port=None, tab=None, keep_open=False):
+        self.transport = None
+        self.target = None
+        self.owned = not tab
+        self.keep_open = keep_open
+        if browser or port:
+            from .cdp_transport import ChromeCDP
+            self.transport = ChromeCDP(browser, port=port)
+        elif tab:
+            raise ValueError("An existing tab requires an explicit browser")
+        else:
+            ensure_daemon()
+        try:
+            self._connect(url, tab)
+        except Exception:
+            self.close()
+            raise
+
+    def _cdp(self, method, **params):
+        return (getattr(self, "transport", None) or cdp)(method, **params)
+
+    def _connect(self, url, tab):
+        self.target = (
+            self._cdp("Jev.resolveTab", tab=tab) if tab else
+            self._cdp("Target.createTarget", url="about:blank", background=True)
+        )["targetId"]
+        self.session = self._cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
+        if not self.owned:
+            return  # Preserve the user's current URL, viewport and focus settings.
         self.call("Emulation.setDeviceMetricsOverride", width=1120, height=780, deviceScaleFactor=1, mobile=False)
         # Keep rAF/menus rendering in an owned background tab, without activating the user's Chrome tab.
         self.call("Emulation.setFocusEmulationEnabled", enabled=True)
@@ -33,7 +58,7 @@ class Browser:
             time.sleep(0.02)
 
     def call(self, method, **params):
-        return cdp(method, session_id=self.session, **params)
+        return self._cdp(method, session_id=self.session, **params)
 
     def evaluate(self, expression):
         response = self.call("Runtime.evaluate", expression=expression, returnByValue=True)
@@ -77,7 +102,7 @@ class Browser:
         for attempt in range(10):
             try:
                 return browser_operation(
-                    {"operation": "observe", "session": self.session, "screenshot": screenshot}
+                    {"operation": "observe", "session": self.session, "screenshot": screenshot}, self._cdp
                 )
             except StalePage:
                 if attempt == 9:
@@ -102,14 +127,23 @@ class Browser:
             raise StalePage("Page changed since this decision. Observe again.")
         if action["kind"] == "wait":
             time.sleep(0.1)
-        result = browser_operation({"operation": "act", "session": self.session, "action": action, "text": text})
+        result = browser_operation(
+            {"operation": "act", "session": self.session, "action": action, "text": text}, self._cdp
+        )
         self.after_input = action if action["kind"] != "wait" else None
         return result
 
     def close(self):
-        if self.target:
-            cdp("Target.closeTarget", targetId=self.target)
-            self.target = None
+        try:
+            if self.target:
+                if self.owned and not self.keep_open:
+                    self._cdp("Target.closeTarget", targetId=self.target)
+                elif self.transport:
+                    self._cdp("Jev.release", targetId=self.target)
+                self.target = None
+        finally:
+            if self.transport:
+                self.transport.close()
 
 
 def fingerprint(state):
@@ -117,12 +151,12 @@ def fingerprint(state):
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
-def browser_operation(request):
+def browser_operation(request, cdp_call=None):
     operation = request["operation"]
     session = request["session"]
 
     def call(method, **params):
-        return cdp(method, session_id=session, **params)
+        return (cdp_call or cdp)(method, session_id=session, **params)
 
     def evaluate(expression):
         result = call("Runtime.evaluate", expression=expression, returnByValue=True)
