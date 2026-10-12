@@ -144,7 +144,7 @@ operation and observed target using the goal, current page and recent actions.
 Codex supplies field text only for TYPE_TEXT. The caller independently verifies
 the result and handles recovery or required user approvals. Browser Harness is
 model-agnostic; Jev is TypeSafe's model. This integration uses the canonical
-chrome-cdp layer rather than a competing Browser Harness connection.
+browserctrl layer rather than a competing Browser Harness connection.
 
 ```bash
 uv run jev-tool --browser dia --url https://en.wikipedia.org/wiki/Main_Page \
@@ -192,11 +192,11 @@ collect interpersonal final-send approval. It must be obtained by the caller.
 
 ### Connection and text providers
 
-The programmatic client lives in `chrome-cdp/python/chrome_cdp`. It holds one Node
+The programmatic client lives in `browserctrl/python/chrome_cdp`. It holds one Node
 sidecar for the whole Python session and uses the same per-browser daemon, tab
 claims and diagnostics as the existing CLI/MCP. It does not launch a subprocess for
-each action or observation. Set `CHROME_CDP_SKILL` only if the skill is not at
-`~/.agents/skills/chrome-cdp`. Node and that skill must be installed; Dia must have
+each action or observation. Set `BROWSERCTRL_SKILL` only if the skill is not at
+`~/.agents/skills/browserctrl`. Node and that skill must be installed; Dia must have
 remote debugging enabled. `cdp doctor --browser dia` is read-only diagnostics.
 
 An explicit `--port N` can replace `--browser dia`, including an already established
@@ -210,8 +210,8 @@ Observations go to TypeSafe when predicting; field context goes to Codex for tex
 Codex runs ephemerally with browser, shell, apps and other action tools disabled.
 
 Jev retains its own indexed snapshot and freshness checks instead of converting
-nodes into chrome-cdp snapshot refs. Its original limitations (shadow DOM, frames,
-uploads, pop-up tabs, nested scrolling) still apply; use ordinary chrome-cdp for
+nodes into browserctrl snapshot refs. Its original limitations (shadow DOM, frames,
+uploads, pop-up tabs, nested scrolling) still apply; use ordinary browserctrl for
 those workflows. Advisory claims prevent accidental competing writers, not hostile
 processes. Do not control a tab simultaneously through two clients.
 

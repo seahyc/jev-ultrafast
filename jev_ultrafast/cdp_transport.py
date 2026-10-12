@@ -1,4 +1,4 @@
-"""Jev protocol adapter over the shared chrome-cdp Python client."""
+"""Jev protocol adapter over the shared browserctrl Python client."""
 
 import importlib.util
 import os
@@ -6,7 +6,12 @@ from pathlib import Path
 
 
 def _client_type():
-    root = Path(os.environ.get("CHROME_CDP_SKILL", Path.home() / ".agents/skills/chrome-cdp"))
+    root = Path(
+        os.environ.get(
+            "BROWSERCTRL_SKILL",
+            os.environ.get("CHROME_CDP_SKILL", Path.home() / ".agents/skills/browserctrl"),
+        )
+    )
     spec = importlib.util.spec_from_file_location("chrome_cdp_client", root / "python/chrome_cdp/__init__.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
